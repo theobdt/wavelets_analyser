@@ -126,6 +126,9 @@ def main():
 
     # plotting
     fig, ax = plt.subplots(3, figsize=(8, 8))
+    ax[0].set_title('Gray')
+    ax[1].set_title('Reconstructed')
+    ax[2].set_title('Signal')
 
     filename = args.input.split('/')[-1]
     title = (f"filename={filename}, level={args.level}, coeff={args.coeff}, "
@@ -138,6 +141,7 @@ def main():
     ymax = np.max(signal)
     ymin = np.min(signal)
     line, = ax[2].plot([0, 0], [ymax, ymin])
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
     def update(i):
         i = i % frames.shape[0]
