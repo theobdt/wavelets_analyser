@@ -1,5 +1,5 @@
 # Wavelets video analyser
-
+![example](figures/img1.png)
 
 ## Installation
 
