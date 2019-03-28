@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 import subprocess
+from scipy.signal import find_peaks
 from matplotlib.animation import FuncAnimation
 import pywt
 
@@ -105,11 +106,18 @@ def main():
                         default='std',
                         help='Function used on reconstructed frames to get'
                              ' a 1D signal')
+    parser.add_argument('-p', '--peaks',
+                        type=float,
+                        default=0.5,
+                        help='Fraction of peaks selected, must be in [0-1]')
     args = parser.parse_args()
 
     # process video
     if args.signal not in ['mean', 'std']:
         print('Signal not recognized')
+        return
+    if args.peaks < 0 or args.peaks > 1:
+        print('Peaks fraction must be between 0 and 1')
         return
     if args.output is not None:
         save = True
@@ -123,6 +131,14 @@ def main():
         signal = np.std(reconstructed, axis=(1, 2))
     elif args.signal == 'mean':
         signal = np.mean(reconstructed, axis=(1, 2))
+
+    # find peaks
+    x_peaks = find_peaks(signal)[0]
+    y_peaks = [signal[x] for x in x_peaks]
+    sort = np.argsort(y_peaks)[::-1]
+    selected = sort[: int(args.peaks * len(sort))]
+    x_selected = [x_peaks[s] for s in selected]
+    y_selected = [y_peaks[s] for s in selected]
 
     # plotting
     fig, ax = plt.subplots(3, figsize=(8, 8))
@@ -141,6 +157,7 @@ def main():
     ymax = np.max(signal)
     ymin = np.min(signal)
     line, = ax[2].plot([0, 0], [ymax, ymin])
+    ax[2].scatter(x_selected, y_selected, c='r', marker='X')
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
     def update(i):
