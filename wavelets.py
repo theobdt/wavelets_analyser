@@ -6,6 +6,7 @@ import subprocess
 from scipy.signal import find_peaks
 from matplotlib.animation import FuncAnimation
 import pywt
+import struct
 
 
 def import_frames(path):
@@ -107,8 +108,10 @@ def main():
                         help=("Wavelets type: haar, db2 .."))
     parser.add_argument('-o', '--output',
                         type=str,
-                        default=None,
-                        help='output path to save the gif')
+                        help='output path to save the animation')
+    parser.add_argument('-sf', '--sound_file',
+                        type=str,
+                        help='output path to save the signal as sound')
     parser.add_argument('-s', '--signal',
                         type=str,
                         default='std',
@@ -127,10 +130,6 @@ def main():
     if args.peaks < 0 or args.peaks > 1:
         print('Peaks fraction must be between 0 and 1')
         return
-    if args.output is not None:
-        save = True
-    else:
-        save = False
 
     if args.txt_file:
         lines = []
@@ -192,7 +191,14 @@ def main():
         im2.set_data(reconstructed[i])
         line.set_data([i, i], [ymax, ymin])
 
-    if save:
+    if args.sound_file:
+        m = np.max(np.abs(signal))
+        print(f'Saving audio to {args.sound_file}')
+        with open(args.sound_file, 'wb') as sfile:
+            for y in signal:
+                sfile.write(struct.pack('b', int(y*127/m)))
+
+    if args.output:
         print(f'Saving output ..')
         # Open an ffmpeg process
         outf = args.output
