@@ -15,7 +15,7 @@ sudo apt install ffmpeg
 
 ## Usage 
 ```
-$ python wavelets.py -f <input_path> [-l <level>] [-c <coeff>] [-w <wavelet>] [-s <signal>] [-o <output_path>]
+$ python wavelets.py -f <input_path> [-l <level>] [-c <coeff>] [-t <coeffs.txt>] [-w <wavelet>] [-s <signal>] [-o <output_path>]
 ```
 
 ### Options
@@ -26,6 +26,7 @@ $ python wavelets.py -f <input_path> [-l <level>] [-c <coeff>] [-w <wavelet>] [-
     a : approximation
     d : details
     order : (time, y, x) 
+* -t, --txt_file : path to txt file with multilevels coefficients. If 0 is indicated, will keep the last LF coeffs.
 * -w, --wavelets : wavelet used (default='haar'), full list of wavelets available [here](https://pywavelets.readthedocs.io/en/latest/ref/wavelets.html)
 * -s, --signal : operation used to compress 3D reconstructed frames to 1D array: 'std' (default) or 'mean'
 * -o, --output : output path. If specified, the animation is not drawn but is saved to this path.
@@ -34,10 +35,8 @@ $ python wavelets.py -f <input_path> [-l <level>] [-c <coeff>] [-w <wavelet>] [-
 To visualize the animation:
 ```
 $ python wavelets.py -i input_video.mp4
-```
-or 
-```
 $ python wavelets.py -i input_video.mp4 -l 2 -c ddd -s mean -w db2
+$ python wavelets.py -i input_video.mp4 -t example_coeffs.txt -s mean -w db2
 ```
 
 To save the animation:

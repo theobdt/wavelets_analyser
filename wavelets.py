@@ -38,16 +38,17 @@ def import_frames(path):
     return np.array(frames), fps
 
 
-def reconstruct(frames, level=1, coeff='daa', wavelet='haar'):
+def reconstruct(frames, dictionary, wavelet='haar'):
     """Filter and reconstruct video using wavelets
 
     Parameters
     ----------
     frames : ndarray
         input array of gray frames, shape: (nframes, height, width)
-    level : int
-        wavelets level
-    coeff : str
+    dictionary : dict
+        levels and coeffs to keep
+
+        coeff : str
         Selects one of the 8 subsets of the 3D wavelets coefficient "cube",
         corresponding to the chosen wavelet level.
         3 characters long string, ex: 'aaa', 'aad', 'ada', 'add', ...
@@ -60,17 +61,21 @@ def reconstruct(frames, level=1, coeff='daa', wavelet='haar'):
     rec : ndarray
         reconstructed frames from the chosen wavelet level and coeff
     """
-    if level > 0:
-        print('Computing coefficients ..')
-        coeffs = pywt.wavedecn(frames, wavelet, level=level)
-        if coeff != 'aaa':
-            coeffs[0] = np.zeros_like(coeffs[0])
-        for i in range(2, len(coeffs)):
-            for m in list(coeffs[i].keys()):
-                coeffs[i][m] = np.zeros_like(coeffs[i][m])
-        for m in list(coeffs[1].keys()):
-            if m != coeff:
-                coeffs[1][m] = np.zeros_like(coeffs[1][m])
+    levels = list(dictionary.keys())
+    level_max = max(levels)
+    if level_max > 0:
+        coeffs = pywt.wavedecn(frames, wavelet, level=level_max)
+        for i in range(len(coeffs)):
+            level = level_max - i + 1
+            if i == 0:
+                if 0 not in levels:
+                    coeffs[0] = np.zeros_like(coeffs[0])
+                continue
+            for key in list(coeffs[i].keys()):
+                if level in levels:
+                    if key in dictionary[level]:
+                        continue
+                coeffs[i][key] = np.zeros_like(coeffs[i][key])
         print('Reconstructing frames ..')
         rec = pywt.waverecn(coeffs, wavelet)
     else:
@@ -93,6 +98,9 @@ def main():
                         default='daa',
                         help=("Wavelets coeffs ['aaa', daa' , 'ddd', ...] "
                               "a: approximation, d: details"))
+    parser.add_argument('-t', '--txt_file',
+                        type=str,
+                        help='Text file with level and coeff decomposition')
     parser.add_argument('-w', '--wavelet',
                         type=str,
                         default='haar',
@@ -124,9 +132,27 @@ def main():
     else:
         save = False
 
+    if args.txt_file:
+        lines = []
+        print(f'Reading coeffs from {args.txt_file} ..')
+        with open(args.txt_file, 'r') as txt:
+            line = txt.readline()
+            while line:
+                lines.append(line)
+                line = txt.readline()
+        dictionary = {}
+        for line in lines:
+            split = line.split()
+            dictionary[int(split[0])] = split[1:]
+    else:
+        dictionary = {args.level: [args.coeff]}
+
+    print('Coefficients selected :')
+    print(dictionary)
+
     frames, fps = import_frames(args.input)
-    reconstructed = reconstruct(frames, wavelet=args.wavelet, level=args.level,
-                                coeff=args.coeff)
+    reconstructed = reconstruct(frames, dictionary=dictionary,
+                                wavelet=args.wavelet)
     if args.signal == 'std':
         signal = np.std(reconstructed, axis=(1, 2))
     elif args.signal == 'mean':
@@ -147,8 +173,8 @@ def main():
     ax[2].set_title('Signal')
 
     filename = args.input.split('/')[-1]
-    title = (f"filename={filename}, level={args.level}, coeff={args.coeff}, "
-             f"signal={args.signal}, wavelet={args.wavelet}")
+    title = (f"filename={filename}, level/coeffs={dictionary}, p={args.peaks},"
+             f" signal={args.signal}, wavelet={args.wavelet}")
     fig.suptitle(title, fontsize=13)
     im1 = ax[0].imshow(frames[0], plt.cm.gray)
     im2 = ax[1].imshow(reconstructed[0])
