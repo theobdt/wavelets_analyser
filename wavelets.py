@@ -1,9 +1,10 @@
 import argparse
 import numpy as np
+import os
 import cv2
 import matplotlib.pyplot as plt
 import subprocess
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, argrelextrema
 from matplotlib.animation import FuncAnimation
 import pywt
 import struct
@@ -84,6 +85,105 @@ def reconstruct(frames, dictionary, wavelet='haar'):
     return rec
 
 
+def local_maxima_3D(data, order=1):
+    """Detect local maxima of a 3D array
+
+    Parameters
+    ---------
+    data : 3d ndarray
+    order : int
+        Number of neighbors used to compute local maxima
+
+    Returns
+    -------
+    coordinates : ndarray
+        coordinates of the local maxima
+    values :
+        values of the local maxima
+    """
+    peaks0 = np.array(argrelextrema(data, np.greater, axis=0, order=order))
+    peaks1 = np.array(argrelextrema(data, np.greater, axis=1, order=order))
+    peaks2 = np.array(argrelextrema(data, np.greater, axis=2, order=order))
+
+    stacked = np.vstack((peaks0.transpose(), peaks1.transpose(),
+                         peaks2.transpose()))
+
+    elements, counts = np.unique(stacked, axis=0, return_counts=True)
+
+    coords = elements[np.where(counts == 3)[0]]
+    values = data[coords[:, 0], coords[:, 1], coords[:, 2]]
+
+    return coords, values
+
+
+def filter_coordinates(data, coordinates):
+    filtered = np.zeros(data.shape)
+    (i, j, k) = np.hsplit(coordinates, 3)
+    filtered[i, j, k] = data[i, j, k]
+    return filtered
+
+
+def filter_local_maxima(coeffs, fraction_maxima=0.1):
+    ordered_maxima = {}
+    all_maxima = []
+
+    coeffs[0] = np.zeros_like(coeffs[0])
+
+    # step 1 : finding local maxima
+    print('Finding local maxima ..')
+    for i, level in enumerate(coeffs[1:]):
+        print(f'level {i}')
+        for coeff in list(level.keys()):
+            print(f'coeff {coeff}')
+            data = level[coeff]
+            absolute = np.abs(data)
+            print('local maxima')
+            coords, abs_values = local_maxima_3D(absolute)
+            # filtered = filter_coordinates(data, coords)
+            # level[coeff] = filtered
+            print('append')
+            all_maxima += list(abs_values)
+            print('stack')
+            stacked = np.hstack((coords, abs_values.reshape(-1, 1)))
+            ordered_maxima[(i, coeff)] = stacked
+
+    # step 2 : selecting local maxima
+    n_limit = int((1 - fraction_maxima) * len(all_maxima))
+    limit = sorted(all_maxima)[n_limit]
+
+    # step 3 : filtering local maxima
+    print('Filtering local maxima ..')
+    count_filtered_maxima = {}
+    for i, level in enumerate(coeffs[1:]):
+        print(f'level {i}')
+        for coeff in list(level.keys()):
+            print(f'coeff {coeff}')
+            coeffs_values = ordered_maxima[(i, coeff)]
+            mask = coeffs_values[:, -1] > limit
+            if np.any(mask):
+                count_filtered_maxima[(i, coeff)] = np.sum(mask)
+                filtered_coords = coeffs_values[:, :-1][mask].astype(int)
+                filtered_coeffs = filter_coordinates(level[coeff],
+                                                     filtered_coords)
+                coeffs[i + 1][coeff] = filtered_coeffs
+            else:
+                count_filtered_maxima[(i, coeff)] = 0
+                coeffs[i + 1][coeff] = np.zeros_like(coeffs[i + 1][coeff])
+
+    print(count_filtered_maxima)
+    return coeffs
+
+
+def reconstruct_local_maxima(frames, fraction_maxima=0.1, level_max=3,
+                             wavelet='haar'):
+    print('Decomposing frames ..')
+    coeffs = pywt.wavedecn(frames, wavelet, level=level_max)
+    filtered_coeffs = filter_local_maxima(coeffs, fraction_maxima)
+    print('Reconstructing frames ..')
+    reconstructed = pywt.waverecn(filtered_coeffs, wavelet)
+    return reconstructed
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--input',
@@ -121,15 +221,26 @@ def main():
                         type=float,
                         default=0.5,
                         help='Fraction of peaks selected, must be in [0-1]')
+    parser.add_argument('-lm', '--local_maxima',
+                        type=float,
+                        help=('Fraction of local maxima selected, must be '
+                              'in [0-1]'))
     args = parser.parse_args()
 
     # process video
+    if not os.path.exists(args.input):
+        print('Input path does not exist')
+        return
     if args.signal not in ['mean', 'std']:
         print('Signal not recognized')
         return
     if args.peaks < 0 or args.peaks > 1:
         print('Peaks fraction must be between 0 and 1')
         return
+    if args.local_maxima:
+        if args.local_maxima < 0 or args.local_maxima > 1:
+            print('Fraction of local maxima must be between 0 and 1')
+            return
 
     if args.txt_file:
         lines = []
@@ -146,12 +257,17 @@ def main():
     else:
         dictionary = {args.level: [args.coeff]}
 
-    print('Coefficients selected :')
-    print(dictionary)
-
     frames, fps = import_frames(args.input)
-    reconstructed = reconstruct(frames, dictionary=dictionary,
-                                wavelet=args.wavelet)
+    if args.local_maxima:
+        reconstructed = reconstruct_local_maxima(frames, args.local_maxima,
+                                                 args.level,
+                                                 args.wavelet)
+    else:
+        print('Coefficients selected :')
+        print(dictionary)
+        reconstructed = reconstruct(frames, dictionary=dictionary,
+                                    wavelet=args.wavelet)
+
     if args.signal == 'std':
         signal = np.std(reconstructed, axis=(1, 2))
     elif args.signal == 'mean':
