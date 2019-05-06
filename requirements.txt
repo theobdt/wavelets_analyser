@@ -1,4 +1,5 @@
 numpy
+scipy
 PyWavelets
 matplotlib
 opencv_python
