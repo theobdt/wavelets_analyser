@@ -1,10 +1,12 @@
 import argparse
 import numpy as np
+import numpy.ma as ma
 import os
 import cv2
 import matplotlib.pyplot as plt
 import subprocess
 from scipy.signal import find_peaks, argrelextrema
+from scipy import ndimage as ndi
 from matplotlib.animation import FuncAnimation
 import pywt
 import struct
@@ -83,6 +85,18 @@ def reconstruct(frames, dictionary, wavelet='haar'):
     else:
         rec = frames
     return rec
+
+
+def new_local_maxima_3D(data, order=1):
+    size = 1 + 2 * order
+    footprint = np.ones((size, size, size))
+    footprint[order, order, order] = 0
+    filtered = ndi.maximum_filter(data, footprint=footprint)
+    mask_local_maxima = data > filtered
+    assert mask_local_maxima.dtype == bool
+    sorted_abs_values = np.sort(np.abs(data[mask_local_maxima]))[::-1]
+    local_max = ma.MaskedArray(data, mask=~mask_local_maxima)
+    # mask : everything 0 becomes 0
 
 
 def local_maxima_3D(data, order=1):
