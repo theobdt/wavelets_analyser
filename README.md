@@ -38,14 +38,15 @@ $ python wavelets.py -f <input_path> [-l <level>] [-c <coeff>] [-t <coeffs.txt>]
 To visualize the animation:
 ```
 $ python wavelets.py -i input_video.mp4
-$ python wavelets.py -i input_video.mp4 -l 2 -c ddd -s mean -w db2
+$ python wavelets.py -i input_video.mp4 -l 2 -c ddd -s std -w db2
 $ python wavelets.py -i input_video.mp4 -t example_coeffs.txt -s mean -w db2 -p 0.1
 ```
+To keep only the first X% of local maxima :
+```
+$ python wavelets.py -i input_video.mp4 -lm 0.01 -l 2
+```
+Here we kept the first 1% of local maxima (in absolute values) computed on the first 2 wavelet levels.
 
-To use local maxima:
-```
-$ python wavelets.py -i input_video.mp4 -lm 0.01 -l 2 -s mean -p 0
-```
 
 To save the animation:
 ```

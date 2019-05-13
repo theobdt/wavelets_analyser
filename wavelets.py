@@ -1,11 +1,10 @@
 import argparse
 import numpy as np
-import numpy.ma as ma
 import os
 import cv2
 import matplotlib.pyplot as plt
 import subprocess
-from scipy.signal import find_peaks, argrelextrema
+from scipy.signal import find_peaks
 from scipy import ndimage as ndi
 from matplotlib.animation import FuncAnimation
 import pywt
@@ -87,18 +86,6 @@ def reconstruct(frames, dictionary, wavelet='haar'):
     return rec
 
 
-def new_local_maxima_3D(data, order=1):
-    size = 1 + 2 * order
-    footprint = np.ones((size, size, size))
-    footprint[order, order, order] = 0
-    filtered = ndi.maximum_filter(data, footprint=footprint)
-    mask_local_maxima = data > filtered
-    assert mask_local_maxima.dtype == bool
-    sorted_abs_values = np.sort(np.abs(data[mask_local_maxima]))[::-1]
-    local_max = ma.MaskedArray(data, mask=~mask_local_maxima)
-    # mask : everything 0 becomes 0
-
-
 def local_maxima_3D(data, order=1):
     """Detect local maxima of a 3D array
 
@@ -115,17 +102,15 @@ def local_maxima_3D(data, order=1):
     values :
         values of the local maxima
     """
-    peaks0 = np.array(argrelextrema(data, np.greater, axis=0, order=order))
-    peaks1 = np.array(argrelextrema(data, np.greater, axis=1, order=order))
-    peaks2 = np.array(argrelextrema(data, np.greater, axis=2, order=order))
+    size = 1 + 2 * order
+    footprint = np.ones((size, size, size))
+    footprint[order, order, order] = 0
+    filtered = ndi.maximum_filter(data, footprint=footprint)
+    mask_local_maxima = data > filtered
+    assert mask_local_maxima.dtype == bool
 
-    stacked = np.vstack((peaks0.transpose(), peaks1.transpose(),
-                         peaks2.transpose()))
-
-    elements, counts = np.unique(stacked, axis=0, return_counts=True)
-
-    coords = elements[np.where(counts == 3)[0]]
-    values = data[coords[:, 0], coords[:, 1], coords[:, 2]]
+    coords = np.asarray(np.where(mask_local_maxima)).T
+    values = data[mask_local_maxima]
 
     return coords, values
 
@@ -146,18 +131,12 @@ def filter_local_maxima(coeffs, fraction_maxima=0.1):
     # step 1 : finding local maxima
     print('Finding local maxima ..')
     for i, level in enumerate(coeffs[1:]):
-        print(f'level {i}')
         for coeff in list(level.keys()):
-            print(f'coeff {coeff}')
+            print(f'level {i}, coeffcients {coeff}')
             data = level[coeff]
             absolute = np.abs(data)
-            print('local maxima')
             coords, abs_values = local_maxima_3D(absolute)
-            # filtered = filter_coordinates(data, coords)
-            # level[coeff] = filtered
-            print('append')
             all_maxima += list(abs_values)
-            print('stack')
             stacked = np.hstack((coords, abs_values.reshape(-1, 1)))
             ordered_maxima[(i, coeff)] = stacked
 
@@ -169,9 +148,8 @@ def filter_local_maxima(coeffs, fraction_maxima=0.1):
     print('Filtering local maxima ..')
     count_filtered_maxima = {}
     for i, level in enumerate(coeffs[1:]):
-        print(f'level {i}')
         for coeff in list(level.keys()):
-            print(f'coeff {coeff}')
+            print(f'level {i}, coefficients {coeff}')
             coeffs_values = ordered_maxima[(i, coeff)]
             mask = coeffs_values[:, -1] > limit
             if np.any(mask):
@@ -228,7 +206,7 @@ def main():
                         help='output path to save the signal as sound')
     parser.add_argument('-s', '--signal',
                         type=str,
-                        default='std',
+                        default='mean',
                         help='Function used on reconstructed frames to get'
                              ' a 1D signal')
     parser.add_argument('-p', '--peaks',
@@ -268,6 +246,7 @@ def main():
         for line in lines:
             split = line.split()
             dictionary[int(split[0])] = split[1:]
+        print(dictionary)
     else:
         dictionary = {args.level: [args.coeff]}
 
