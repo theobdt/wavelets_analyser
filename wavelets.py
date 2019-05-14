@@ -281,7 +281,7 @@ def main():
     ax[2].set_title('Signal')
 
     filename = args.input.split('/')[-1]
-    title = (f"filename={filename}, level/coeffs={dictionary}, p={args.peaks},"
+    title = (f"filename={filename}"
              f" signal={args.signal}, wavelet={args.wavelet}")
     fig.suptitle(title, fontsize=13)
     im1 = ax[0].imshow(frames[0], plt.cm.gray)
