@@ -4,8 +4,11 @@ import os
 import cv2
 import matplotlib.pyplot as plt
 import subprocess
+import librosa
+import librosa.display
 from scipy.signal import find_peaks
 from scipy import ndimage as ndi
+from skimage import filters
 from matplotlib.animation import FuncAnimation
 import pywt
 import struct
@@ -65,9 +68,12 @@ def reconstruct(frames, dictionary, wavelet='haar'):
         reconstructed frames from the chosen wavelet level and coeff
     """
     levels = list(dictionary.keys())
+    print(levels)
     level_max = max(levels)
     if level_max > 0:
         coeffs = pywt.wavedecn(frames, wavelet, level=level_max)
+        print(len(coeffs))
+        print(coeffs[1].keys())
         for i in range(len(coeffs)):
             level = level_max - i + 1
             if i == 0:
@@ -90,7 +96,7 @@ def local_maxima_3D(data, order=1):
     """Detect local maxima of a 3D array
 
     Parameters
-    ---------
+    ----------
     data : 3d ndarray
     order : int
         Number of neighbors used to compute local maxima
@@ -98,7 +104,7 @@ def local_maxima_3D(data, order=1):
     Returns
     -------
     coordinates : ndarray
-        coordinates of the local maxima
+        coordinates of the local maxima (nmax, 3)
     values :
         values of the local maxima
     """
@@ -116,6 +122,20 @@ def local_maxima_3D(data, order=1):
 
 
 def filter_coordinates(data, coordinates):
+    """Set to zero points not listed in coordinates
+
+    Parameters
+    ----------
+    data : 3d ndarray
+        array to filter
+    coordinates : ndarray (N, 3)
+        3D coordinates of the N points to keep
+
+    Returns
+    -------
+    filtered : ndarray (data.shape)
+        array with filtered coordinates
+    """
     filtered = np.zeros(data.shape)
     (i, j, k) = np.hsplit(coordinates, 3)
     filtered[i, j, k] = data[i, j, k]
@@ -123,17 +143,32 @@ def filter_coordinates(data, coordinates):
 
 
 def filter_local_maxima(coeffs, fraction_maxima=0.1):
+    """Keep the first ($fraction_maxima)*100 percents of local maxima in coeffs
+
+    Parameters
+    ----------
+    coeffs : dict
+        wavelets coefficients
+    fraction_maxima : float in [0-1]
+
+    Returns
+    -------
+    coeffs : dict
+        filtered coefficients
+    """
     ordered_maxima = {}
     all_maxima = []
 
     coeffs[0] = np.zeros_like(coeffs[0])
+    level_max = len(coeffs) - 1
 
     # step 1 : finding local maxima
     print('Finding local maxima ..')
-    for i, level in enumerate(coeffs[1:]):
-        for coeff in list(level.keys()):
-            print(f'level {i}, coeffcients {coeff}')
-            data = level[coeff]
+    for i, group in enumerate(coeffs[1:]):
+        level = level_max - i
+        for coeff in list(group.keys()):
+            print(f'level {level}, coefficients {coeff}')
+            data = group[coeff]
             absolute = np.abs(data)
             coords, abs_values = local_maxima_3D(absolute)
             all_maxima += list(abs_values)
@@ -147,15 +182,16 @@ def filter_local_maxima(coeffs, fraction_maxima=0.1):
     # step 3 : filtering local maxima
     print('Filtering local maxima ..')
     count_filtered_maxima = {}
-    for i, level in enumerate(coeffs[1:]):
-        for coeff in list(level.keys()):
-            print(f'level {i}, coefficients {coeff}')
+    for i, group in enumerate(coeffs[1:]):
+        level = level_max - i
+        for coeff in list(group.keys()):
+            print(f'level {level}, coefficients {coeff}')
             coeffs_values = ordered_maxima[(i, coeff)]
             mask = coeffs_values[:, -1] > limit
             if np.any(mask):
                 count_filtered_maxima[(i, coeff)] = np.sum(mask)
                 filtered_coords = coeffs_values[:, :-1][mask].astype(int)
-                filtered_coeffs = filter_coordinates(level[coeff],
+                filtered_coeffs = filter_coordinates(group[coeff],
                                                      filtered_coords)
                 coeffs[i + 1][coeff] = filtered_coeffs
             else:
@@ -174,6 +210,28 @@ def reconstruct_local_maxima(frames, fraction_maxima=0.1, level_max=3,
     print('Reconstructing frames ..')
     reconstructed = pywt.waverecn(filtered_coeffs, wavelet)
     return reconstructed
+
+
+def segmentation_1d(signal, size=10):
+    absolute_val = np.abs(signal)
+    maxs = ndi.maximum_filter1d(absolute_val, size)
+    zeros = np.zeros(len(maxs))
+    if np.all(zeros == maxs):
+        return zeros
+    else:
+        thresh = filters.threshold_otsu(maxs)
+        binary = maxs > thresh
+    return binary
+
+
+def post_processing(frames):
+    print('Post processing ..')
+    post_processed = []
+    for frame in frames:
+        m = np.mean(frame)
+        post_processed.append(frame - m)
+
+    return np.asarray(post_processed)
 
 
 def main():
@@ -208,23 +266,30 @@ def main():
                         type=str,
                         default='mean',
                         help='Function used on reconstructed frames to get'
-                             ' a 1D signal')
+                        ' a 1D signal: mean, std, mean_abs')
     parser.add_argument('-p', '--peaks',
                         type=float,
-                        default=0.5,
+                        default=0,
                         help='Fraction of peaks selected, must be in [0-1]')
     parser.add_argument('-lm', '--local_maxima',
                         type=float,
                         help=('Fraction of local maxima selected, must be '
                               'in [0-1]'))
+    parser.add_argument('-so', '--sound',
+                        action='store_true',
+                        help=('If entered, display sound waveform from '
+                              'input file'))
+    parser.add_argument('-pp', '--post_processing',
+                        action='store_true',
+                        help='If entered, process frames after reconstruction')
     args = parser.parse_args()
 
     # process video
     if not os.path.exists(args.input):
         print('Input path does not exist')
         return
-    if args.signal not in ['mean', 'std']:
-        print('Signal not recognized')
+    if args.signal not in ['mean', 'std', 'mean_abs']:
+        print('Signal not recognized: mean, std, mean_abs')
         return
     if args.peaks < 0 or args.peaks > 1:
         print('Peaks fraction must be between 0 and 1')
@@ -251,6 +316,7 @@ def main():
         dictionary = {args.level: [args.coeff]}
 
     frames, fps = import_frames(args.input)
+    t_max = frames.shape[0] / fps
     if args.local_maxima:
         reconstructed = reconstruct_local_maxima(frames, args.local_maxima,
                                                  args.level,
@@ -260,12 +326,19 @@ def main():
         print(dictionary)
         reconstructed = reconstruct(frames, dictionary=dictionary,
                                     wavelet=args.wavelet)
+    if args.post_processing:
+        reconstructed = post_processing(reconstructed)
 
     if args.signal == 'std':
         signal = np.std(reconstructed, axis=(1, 2))
     elif args.signal == 'mean':
         signal = np.mean(reconstructed, axis=(1, 2))
-
+    elif args.signal == 'mean_abs':
+        signal = np.mean(np.abs(reconstructed), axis=(1, 2))
+    if np.all(signal == 0):
+        print('WARNING : signal is equal to zero')
+        print("Did you use 'mean' on detailed coefficients only ?")
+    signal = signal / np.max(signal)
     # find peaks
     x_peaks = find_peaks(signal)[0]
     y_peaks = [signal[x] for x in x_peaks]
@@ -273,6 +346,11 @@ def main():
     selected = sort[: int(args.peaks * len(sort))]
     x_selected = [x_peaks[s] for s in selected]
     y_selected = [y_peaks[s] for s in selected]
+
+    # segmentation 1d
+    absolute = np.abs(signal)
+    binary = segmentation_1d(absolute)
+    scaled = np.array(binary) * np.max(absolute)
 
     # plotting
     fig, ax = plt.subplots(3, figsize=(8, 8))
@@ -286,7 +364,11 @@ def main():
     fig.suptitle(title, fontsize=13)
     im1 = ax[0].imshow(frames[0], plt.cm.gray)
     im2 = ax[1].imshow(reconstructed[0])
-    ax[2].plot(signal)
+    n_points = len(signal)
+    times = np.linspace(0, t_max, n_points)
+
+    ax[2].plot(times, signal, label='wavelet signal')
+    # ax[2].plot(times, scaled)
 
     ymax = np.max(signal)
     ymin = np.min(signal)
@@ -294,11 +376,17 @@ def main():
     ax[2].scatter(x_selected, y_selected, c='r', marker='X')
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
+    if args.sound:
+        y, sr = librosa.load(args.input)
+        y = y / np.max(y)
+        librosa.display.waveplot(y, sr=sr, ax=ax[2], label='audio waveform')
+
     def update(i):
-        i = i % frames.shape[0]
+        i = i % len(signal)
         im1.set_data(frames[i])
         im2.set_data(reconstructed[i])
-        line.set_data([i, i], [ymax, ymin])
+        x_line = times[i]
+        line.set_data([x_line, x_line], [ymax, ymin])
 
     if args.sound_file:
         m = np.max(np.abs(signal))

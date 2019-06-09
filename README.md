@@ -52,3 +52,10 @@ To save the animation:
 ```
 $ python wavelets.py -i input_video.mp4 -o output_animation.mp4
 ```
+To keep the low frequency, use '0' in coeffs.txt
+### Examples
+```
+0
+1 None
+```
+This will only keep the low frequency after the first level of decompostion.
